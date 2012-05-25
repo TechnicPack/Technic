@@ -355,6 +355,13 @@ mods:
             v3.6e:
             v3.1:
             v3.2_beta2:
+    ic2-charcoaldust:
+        name: "IC2 Charcoal Dust"
+        description: ""
+        installtype: "zip"
+        modtype: "content"
+        versions:
+            v1.2:
     ic2-compactsolars:
         name: "IC2 Compact Solars"
         description: ""
