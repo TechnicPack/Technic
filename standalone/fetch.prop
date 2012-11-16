@@ -4,4 +4,4 @@ tekkit=1.2.5,https://sites.google.com/site/vrakiver/btsplauncher/tekkit/
 vanilla=1.4.4,https://github.com/Timvrakas/Technic/raw/master/standalone/vanilla/
 vrakiver=1.2.5,https://github.com/Timvrakas/Technic/raw/master/standalone/vrakiver/
 packs=tekkit,vanilla,vrakiver
-launcherver=3
+launcherver=4
