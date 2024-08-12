@@ -3,36 +3,16 @@ on: [push]
 jobs:
   deploy:
     name: Deploy to mirror
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
-      - name: Set up SSH credentials
-        run: |
-          mkdir -p ~/.ssh/
-          chmod 700 ~/.ssh/
-          echo "$MIRROR_SSH_KEY" > ~/.ssh/mirror
-          chmod 600 ~/.ssh/mirror
-          cat >~/.ssh/config <<END
-          Host mirror
-            Hostname $MIRROR_SSH_HOST
-            User $MIRROR_SSH_USER
-            IdentityFile ~/.ssh/mirror
-            #VerifyHostKeyDNS yes
-            StrictHostKeyChecking accept-new
-          END
-          # Remove cached entries
-          rm -f ~/.ssh/known_hosts
-        env:
-          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
-          MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
-          MIRROR_SSH_USER: ${{ secrets.MIRROR_SSH_USER }}
       - name: Pull changes
-        #run: ssh mirror "cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard origin/master"
-        run: ssh mirror "cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull"
+        #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard origin/master
+        run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
           MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
       - name: Deploy mods to new mirror
-        run: ssh mirror "rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
+        run: rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
