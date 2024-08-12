@@ -17,18 +17,20 @@ jobs:
             HostName $MIRROR_SSH_HOST
             User $MIRROR_SSH_USER
             IdentityFile ~/.ssh/mirror
-            StrictHostKeyChecking no
+            VerifyHostKeyDNS yes
           END
         env:
           MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
           MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
           MIRROR_SSH_USER: ${{ secrets.MIRROR_SSH_USER }}
       - name: Pull changes
-        #run: ssh mirror "cd $MIRROR_BASEPATH && git fetch && git reset --hard origin/master"
-        run: ssh mirror "cd $MIRROR_BASEPATH && git pull"
+        #run: ssh mirror "cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard origin/master"
+        run: ssh mirror "cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
       - name: Deploy mods to new mirror
-        run: ssh mirror "rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
+        run: ssh mirror "sudo -u $MIRROR_USER2 -H rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
