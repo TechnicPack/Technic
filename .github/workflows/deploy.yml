@@ -33,7 +33,6 @@ jobs:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
           MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
       - name: Deploy mods to new mirror
-        run: ssh mirror "sudo -u $MIRROR_USER2 -H rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
+        run: ssh mirror "rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
