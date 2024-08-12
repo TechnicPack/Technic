@@ -17,8 +17,7 @@ jobs:
             Hostname $MIRROR_SSH_HOST
             User $MIRROR_SSH_USER
             IdentityFile ~/.ssh/mirror
-            #VerifyHostKeyDNS yes
-            StrictHostKeyChecking no
+            VerifyHostKeyDNS yes
           END
           # Remove cached entries
           rm -f ~/.ssh/known_hosts
