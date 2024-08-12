@@ -1,0 +1,34 @@
+name: Deploy to mirror
+on: [push]
+jobs:
+  deploy:
+    name: Deploy to mirror
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Set up SSH credentials
+        run: |
+          mkdir -p ~/.ssh/
+          chmod 700 ~/.ssh/
+          echo "$MIRROR_SSH_KEY" > ~/.ssh/mirror
+          chmod 600 ~/.ssh/mirror
+          cat >>~/.ssh/config <<END
+          Host mirror
+            HostName $MIRROR_SSH_HOST
+            User $MIRROR_SSH_USER
+            IdentityFile ~/.ssh/mirror
+            StrictHostKeyChecking no
+          END
+        env:
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+          MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
+          MIRROR_SSH_USER: ${{ secrets.MIRROR_SSH_USER }}
+      - name: Pull changes
+        #run: ssh mirror "cd $MIRROR_BASEPATH && git fetch && git reset --hard origin/master"
+        run: ssh mirror "cd $MIRROR_BASEPATH && git pull"
+        env:
+          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+      - name: Deploy mods to new mirror
+        run: ssh mirror "rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum"
+        env:
+          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
