@@ -12,13 +12,15 @@ jobs:
           chmod 700 ~/.ssh/
           echo "$MIRROR_SSH_KEY" > ~/.ssh/mirror
           chmod 600 ~/.ssh/mirror
-          cat >>~/.ssh/config <<END
+          cat >~/.ssh/config <<END
           Host mirror
-            HostName $MIRROR_SSH_HOST
+            Hostname $MIRROR_SSH_HOST
             User $MIRROR_SSH_USER
             IdentityFile ~/.ssh/mirror
             VerifyHostKeyDNS yes
           END
+          # Remove cached entries
+          rm -f ~/.ssh/known_hosts
         env:
           MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
           MIRROR_SSH_HOST: ${{ secrets.MIRROR_SSH_HOST }}
