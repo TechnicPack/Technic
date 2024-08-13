@@ -1,18 +1,36 @@
-name: Deploy to mirror
-on: [push]
+name: Deploy to production
+on:
+  push:
+    branches:
+      - master
 jobs:
   deploy:
     name: Deploy to mirror
     runs-on: self-hosted
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - name: Pull changes
-        #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard origin/master
-        run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull
+        #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard "origin/$GITHUB_REF_NAME"
+        run: |
+          cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull
+          echo $(git rev-parse "$GITHUB_REF_NAME@{1}")..$(git rev-parse "$GITHUB_REF_NAME") >> "$GITHUB_STEP_SUMMARY"
+          sudo -u $MIRROR_USER2 -H git diff --stat "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
           MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
+  deploy-r2:
+    name: Deploy to new mirror
+    runs-on: self-hosted
+    needs: deploy
+    steps:
+      - name: Determine if mods changed
+        # This uses reflog to determine where the branch was at before we pulled in the changes
+        run: sudo -u $MIRROR_USER2 -H git diff --quiet --exit-code "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/ || echo 'CHANGED=true' >> "$GITHUB_ENV"
+        env:
+          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
       - name: Deploy mods to new mirror
-        run: rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum
+        if: ${{ env.CHANGED == 'true' }}
+        # The combination of -P --stats-one-line-date -v allows us to see progress without the logs being
+        # polluted with real time changes, due to the constant line rewriting that -P does by default
+        run: rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum -P --stats-one-line-date -v
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
