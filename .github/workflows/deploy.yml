@@ -12,7 +12,9 @@ jobs:
         #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard "origin/$GITHUB_REF_NAME"
         run: |
           cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull
-          echo $(git rev-parse "$GITHUB_REF_NAME@{1}")..$(git rev-parse "$GITHUB_REF_NAME") >> "$GITHUB_STEP_SUMMARY"
+          from=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME@{1}")
+          to=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME")
+          echo $from..$to >> "$GITHUB_STEP_SUMMARY"
           sudo -u $MIRROR_USER2 -H git diff --stat "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
