@@ -11,7 +11,8 @@ jobs:
       - name: Pull changes
         #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard "origin/$GITHUB_REF_NAME"
         run: |
-          cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git pull
+          cd $MIRROR_BASEPATH
+          sudo -u $MIRROR_USER2 -H git pull
           from=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME@{1}")
           to=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME")
           echo $from..$to >> "$GITHUB_STEP_SUMMARY"
@@ -26,9 +27,12 @@ jobs:
     steps:
       - name: Determine if mods changed
         # This uses reflog to determine where the branch was at before we pulled in the changes
-        run: sudo -u $MIRROR_USER2 -H git diff --quiet --exit-code "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/ || echo 'CHANGED=true' >> "$GITHUB_ENV"
+        run: |
+          cd $MIRROR_BASEPATH
+          sudo -u $MIRROR_USER2 -H git diff --quiet --exit-code "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/ || echo 'CHANGED=true' >> "$GITHUB_ENV"
         env:
           MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
+          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
       - name: Deploy mods to new mirror
         if: ${{ env.CHANGED == 'true' }}
         # The combination of -P --stats-one-line-date -v allows us to see progress without the logs being
