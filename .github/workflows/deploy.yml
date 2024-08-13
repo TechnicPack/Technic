@@ -1,8 +1,13 @@
 name: Deploy to production
+
 on:
   push:
     branches:
       - master
+
+# disable all permissions for GITHUB_TOKEN
+permissions: {}
+
 jobs:
   deploy:
     name: Deploy to mirror
