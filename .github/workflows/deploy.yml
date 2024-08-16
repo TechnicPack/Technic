@@ -16,12 +16,18 @@ jobs:
       - name: Pull changes
         #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard "origin/$GITHUB_REF_NAME"
         run: |
+          # abort on errors
+          set -euo pipefail
           cd $MIRROR_BASEPATH
           sudo -u $MIRROR_USER2 -H git pull
           from=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME@{1}")
           to=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME")
-          echo $from..$to >> "$GITHUB_STEP_SUMMARY"
-          sudo -u $MIRROR_USER2 -H git diff --stat "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```'
+            echo "$from..$to"
+            sudo -u $MIRROR_USER2 -H git diff --stat "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
           MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
@@ -45,3 +51,45 @@ jobs:
         run: rclone sync $MIRROR_BASEPATH/mods/ technic-r2:technic-mods/mods/ --fast-list --checksum -P --stats-one-line-date -v
         env:
           MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+  prune-cf-cache:
+    name: Purge CF cache for changed R2 files
+    runs-on: self-hosted
+    needs: deploy-r2
+    steps:
+      - name: Determine which (if any) existing mods were modified
+        # This uses reflog to determine where the branch was at before we pulled in the changes
+        # --diff-filter=DMR includes Deleted, Modified and Removed paths
+        run: |
+          # abort on errors
+          set -euo pipefail
+          cd $MIRROR_BASEPATH
+          # Multiline GH Actions variable:
+          # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#multiline-strings
+          {
+            echo 'MODIFIED_FILES<<EOF'
+            sudo -u $MIRROR_USER2 -H git diff --name-only --diff-filter=DMR "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/
+            echo EOF
+          } >> "$GITHUB_ENV"
+        env:
+          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
+          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+      - name: Purge cache selectively
+        if: ${{ env.MODIFIED_FILES != '' }}
+        run: |
+          # abort on errors
+          set -euo pipefail
+          printf 'Modified files:\n%s\n' "$MODIFIED_FILES"
+          printf '%s' "$MODIFIED_FILES" | while mapfile -t -n 30 split && ((${#split[@]})); do
+            payload=$(printf '%s' "${split[@]}" | jq --raw-input --slurp 'split("\n") | map(select(. != "")) | unique | map(. |= "${{ secrets.MIRROR_R2_BASE_URL }}" + .) | {files: .}')
+            curl -X POST --fail-with-body \
+              "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $CF_API_TOKEN" \
+              -d "$payload"
+            sleep 0.5s
+          done
+        env:
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      - name: Wait for cache to be purged
+        run: sleep 30s
