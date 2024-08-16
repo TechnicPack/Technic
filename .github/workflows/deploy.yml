@@ -81,7 +81,8 @@ jobs:
           printf 'Modified files:\n%s\n' "$MODIFIED_FILES"
           printf '%s' "$MODIFIED_FILES" | while mapfile -t -n 30 split && ((${#split[@]})); do
             payload=$(printf '%s' "${split[@]}" | jq --raw-input --slurp 'split("\n") | map(select(. != "")) | unique | map(. |= "${{ secrets.MIRROR_R2_BASE_URL }}" + .) | {files: .}')
-            curl -X POST --fail-with-body \
+            printf 'Payload:\n%s\n' "$payload"
+            curl -X POST --fail-with-body --silent --show-error \
               "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
               -H 'Content-Type: application/json' \
               -H "Authorization: Bearer $CF_API_TOKEN" \
