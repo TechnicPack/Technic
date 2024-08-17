@@ -83,8 +83,8 @@ jobs:
           # abort on errors
           set -euo pipefail
           printf 'Modified files:\n%s\n' "$MODIFIED_FILES"
-          printf '%s' "$MODIFIED_FILES" | while mapfile -t -n 30 split && ((${#split[@]})); do
-            payload=$(printf '%s' "${split[@]}" | jq --raw-input --slurp 'split("\n") | map(select(. != "")) | unique | map(. |= "${{ secrets.MIRROR_R2_BASE_URL }}" + .) | {files: .}')
+          printf '%s' "$MODIFIED_FILES" | while mapfile -n 30 split && ((${#split[@]})); do
+            payload=$(printf '%s' "${split[@]}" | jq --raw-input --slurp 'split("\n") | map(select(. != "")) | unique | map(. |= "${{ vars.MIRROR_R2_BASE_URL }}" + .) | {files: .}')
             printf 'Payload:\n%s\n' "$payload"
             curl -X POST --fail-with-body --silent --show-error \
               "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
