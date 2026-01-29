@@ -14,7 +14,6 @@ jobs:
     env:
       # Secrets
       MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-      MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
       CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       # Vars
@@ -26,20 +25,20 @@ jobs:
           set -euo pipefail
           cd "$MIRROR_BASEPATH"
 
-          OLD_SHA=$(sudo -u "$MIRROR_USER2" -H git rev-parse HEAD)
-          sudo -u "$MIRROR_USER2" -H git pull
-          NEW_SHA=$(sudo -u "$MIRROR_USER2" -H git rev-parse HEAD)
+          OLD_SHA=$(git rev-parse HEAD)
+          git pull
+          NEW_SHA=$(git rev-parse HEAD)
 
           # Generate Lists
           # List A: Files to UPLOAD (Added, Copied, Modified, Renamed, Type changed)
           # We exclude 'D' here so rclone doesn't crash trying to upload missing files.
-          sudo -u "$MIRROR_USER2" -H git diff --name-only --diff-filter=ACMRT "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_upload.txt || true
+          git diff --name-only --diff-filter=ACMRT "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_upload.txt || true
 
           # List B: Files to DELETE (Deleted only)
-          sudo -u "$MIRROR_USER2" -H git diff --name-only --diff-filter=D "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_delete.txt || true
+          git diff --name-only --diff-filter=D "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_delete.txt || true
           
           # List C: ALL changes (for Cloudflare Purge)
-          sudo -u "$MIRROR_USER2" -H git diff --name-only "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_changed_all.txt || true
+          git diff --name-only "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_changed_all.txt || true
 
           if [ -s /tmp/files_to_upload.txt ]; then echo "has_uploads=true" >> "$GITHUB_OUTPUT"; else echo "has_uploads=false" >> "$GITHUB_OUTPUT"; fi
           if [ -s /tmp/files_to_delete.txt ]; then echo "has_deletes=true" >> "$GITHUB_OUTPUT"; else echo "has_deletes=false" >> "$GITHUB_OUTPUT"; fi
