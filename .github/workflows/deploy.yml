@@ -5,94 +5,104 @@ on:
     branches:
       - master
 
-# disable all permissions for GITHUB_TOKEN
 permissions: {}
 
 jobs:
-  deploy:
-    name: Deploy to mirror
+  deploy-and-sync:
+    name: Deploy, sync, and prune
     runs-on: self-hosted
+    env:
+      # Secrets
+      MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
+      MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
+      CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      # Vars
+      R2_BASE_URL: ${{ vars.MIRROR_R2_BASE_URL }}
     steps:
-      - name: Pull changes
-        #run: cd $MIRROR_BASEPATH && sudo -u $MIRROR_USER2 -H git fetch && sudo -u $MIRROR_USER2 -H git reset --hard "origin/$GITHUB_REF_NAME"
+      - name: Git pull and calculate diffs
+        id: git-ops
         run: |
-          # abort on errors
           set -euo pipefail
-          cd $MIRROR_BASEPATH
-          sudo -u $MIRROR_USER2 -H git pull
-          from=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME@{1}")
-          to=$(sudo -u $MIRROR_USER2 -H git rev-parse "$GITHUB_REF_NAME")
-          {
-            echo '```'
-            echo "$from..$to"
-            sudo -u $MIRROR_USER2 -H git diff --stat "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-        env:
-          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
-  deploy-r2:
-    name: Deploy to new mirror
-    runs-on: self-hosted
-    needs: deploy
-    steps:
-      - name: Determine which mod files changed
-        # This uses reflog to determine where the branch was at before we pulled in the changes
+          cd "$MIRROR_BASEPATH"
+
+          OLD_SHA=$(sudo -u "$MIRROR_USER2" -H git rev-parse HEAD)
+          sudo -u "$MIRROR_USER2" -H git pull
+          NEW_SHA=$(sudo -u "$MIRROR_USER2" -H git rev-parse HEAD)
+
+          # Generate Lists
+          # List A: Files to UPLOAD (Added, Copied, Modified, Renamed, Type changed)
+          # We exclude 'D' here so rclone doesn't crash trying to upload missing files.
+          sudo -u "$MIRROR_USER2" -H git diff --name-only --diff-filter=ACMRT "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_upload.txt || true
+
+          # List B: Files to DELETE (Deleted only)
+          sudo -u "$MIRROR_USER2" -H git diff --name-only --diff-filter=D "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_to_delete.txt || true
+          
+          # List C: ALL changes (for Cloudflare Purge)
+          sudo -u "$MIRROR_USER2" -H git diff --name-only "$OLD_SHA" "$NEW_SHA" -- mods/ > /tmp/files_changed_all.txt || true
+
+          if [ -s /tmp/files_to_upload.txt ]; then echo "has_uploads=true" >> "$GITHUB_OUTPUT"; else echo "has_uploads=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -s /tmp/files_to_delete.txt ]; then echo "has_deletes=true" >> "$GITHUB_OUTPUT"; else echo "has_deletes=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -s /tmp/files_changed_all.txt ]; then echo "has_changes=true" >> "$GITHUB_OUTPUT"; else echo "has_changes=false" >> "$GITHUB_OUTPUT"; fi
+
+          # Summary
+          echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "**Range:** $OLD_SHA..$NEW_SHA" >> $GITHUB_STEP_SUMMARY
+          echo "**Uploads:** $(wc -l < /tmp/files_to_upload.txt)" >> $GITHUB_STEP_SUMMARY
+          echo "**Deletions:** $(wc -l < /tmp/files_to_delete.txt)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Rclone upload (sync modified)
+        if: steps.git-ops.outputs.has_uploads == 'true'
         run: |
-          cd $MIRROR_BASEPATH
-          {
-            echo 'MODIFIED_FILES<<EOF'
-            sudo -u $MIRROR_USER2 -H git diff --name-only "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/
-            echo EOF
-           } >> "$GITHUB_ENV"
-        env:
-          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
-          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-      - name: Deploy mods to new mirror
-        if: ${{ env.MODIFIED_FILES != '' }}
-        # The combination of -P --stats-one-line-date -v allows us to see progress without the logs being
-        # polluted with real time changes, due to the constant line rewriting that -P does by default
-        run: rclone sync $MIRROR_BASEPATH/ technic-r2:technic-mods/ --fast-list --checksum -P --stats-one-line-date -v --files-from - --no-traverse <<< $MODIFIED_FILES
-        env:
-          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-  prune-cf-cache:
-    name: Purge CF cache for changed R2 files
-    runs-on: self-hosted
-    needs: deploy-r2
-    steps:
-      - name: Determine which (if any) existing mods were modified
-        # This uses reflog to determine where the branch was at before we pulled in the changes
-        # --diff-filter=DMR includes Deleted, Modified and Removed paths
+          # Sync only the files that were added or modified
+          rclone sync "$MIRROR_BASEPATH/" technic-r2:technic-mods/ \
+            --fast-list \
+            --checksum \
+            --stats-one-line-date \
+            -v \
+            --files-from /tmp/files_to_upload.txt \
+            --no-traverse
+
+      - name: Rclone delete (remove deleted)
+        if: steps.git-ops.outputs.has_deletes == 'true'
         run: |
-          # abort on errors
+          echo "Deleting the following files from R2:"
+          cat /tmp/files_to_delete.txt
+          
+          # Explicitly delete files found in the deletion list
+          rclone delete technic-r2:technic-mods/ \
+            -v \
+            --files-from /tmp/files_to_delete.txt
+
+      - name: Purge CF cache
+        if: steps.git-ops.outputs.has_changes == 'true'
+        run: |
           set -euo pipefail
-          cd $MIRROR_BASEPATH
-          # Multiline GH Actions variable:
-          # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#multiline-strings
-          {
-            echo 'MODIFIED_FILES<<EOF'
-            sudo -u $MIRROR_USER2 -H git diff --name-only --diff-filter=DMR "$GITHUB_REF_NAME@{1}".."$GITHUB_REF_NAME" -- mods/
-            echo EOF
-          } >> "$GITHUB_ENV"
-        env:
-          MIRROR_USER2: ${{ secrets.MIRROR_USER2 }}
-          MIRROR_BASEPATH: ${{ secrets.MIRROR_BASEPATH }}
-      - name: Purge cache selectively
-        if: ${{ env.MODIFIED_FILES != '' }}
-        run: |
-          # abort on errors
-          set -euo pipefail
-          printf 'Modified files:\n%s\n' "$MODIFIED_FILES"
-          printf '%s' "$MODIFIED_FILES" | while mapfile -n 30 split && ((${#split[@]})); do
-            payload=$(printf '%s' "${split[@]}" | jq --raw-input --slurp 'split("\n") | map(select(. != "")) | unique | map(. |= "${{ vars.MIRROR_R2_BASE_URL }}" + .) | {files: .}')
-            printf 'Payload:\n%s\n' "$payload"
+          
+          # Use the ALL list (Uploads + Deletes) so we purge cache for removed files too
+          mapfile -t ALL_FILES < /tmp/files_changed_all.txt
+
+          echo "Purging ${#ALL_FILES[@]} files..."
+
+          # Process in batches of 30 to respect Cloudflare API limits
+          for ((i=0; i<${#ALL_FILES[@]}; i+=30)); do
+            BATCH=("${ALL_FILES[@]:i:30}")
+            
+            # Create JSON payload
+            PAYLOAD=$(printf '%s\n' "${BATCH[@]}" | \
+              jq --raw-input --slurp --arg base "$R2_BASE_URL" \
+              'split("\n") | map(select(length > 0)) | unique | map(. |= $base + .) | {files: .}')
+
             curl -X POST --fail-with-body --silent --show-error \
               "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
               -H 'Content-Type: application/json' \
               -H "Authorization: Bearer $CF_API_TOKEN" \
-              -d "$payload"
+              -d "$PAYLOAD"
+            
             sleep 0.5s
           done
-        env:
-          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/files_to_upload.txt /tmp/files_to_delete.txt /tmp/files_changed_all.txt
